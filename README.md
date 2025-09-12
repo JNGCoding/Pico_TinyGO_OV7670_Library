@@ -1,4 +1,4 @@
-##Pico_TinyGO_OV7670_Library
+#Pico_TinyGO_OV7670_Library#
 A modular TinyGO library for interfacing the OV7670 camera module with the Raspberry Pi Pico. Built for flexibility and performance, this library enables image capture across various resolutions and color formats, making it ideal for embedded vision applications.
 
 ##📸 Features
