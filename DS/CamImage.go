@@ -3,6 +3,8 @@ package DataStructures
 import (
 	"PICO_OV7670/Modules"
 	"fmt"
+	"machine"
+	"time"
 )
 
 /*
@@ -81,16 +83,20 @@ func get_image_type(image_type Modules.IMAGE) int {
 }
 
 /*
- * @brief = Creates the CameraImage DataStructure.
- * @param image_type = The format of image.
- * @param image_res = The resolution of image.
- * @return = An instance of CameraImage will all the maths sorted out.
- */
-func CreateImage(image_type Modules.IMAGE, image_res Modules.RESOLUTION) *CameraImage {
+* @brief = Creates the CameraImage DataStructure.
+* @param image_type = The format of image.
+* @param image_res = The resolution of image.
+* @return = An instance of CameraImage with all the maths sorted out.
+! Handle Error.
+*/
+func CreateImage(image_type Modules.IMAGE, image_res Modules.RESOLUTION) (*CameraImage, error) {
 	bytes_per_pixel := get_image_type(image_type)
 	W, H := get_dimensions(image_res)
+	if image_res == Modules.VGA {
+		return nil, fmt.Errorf("Impossible to store VGA Size Image in RAM.")
+	}
 	Data := make([]uint8, W*H*bytes_per_pixel)
-	return &CameraImage{ImageType: image_type, Resolution: image_res, ImageData: Data}
+	return &CameraImage{ImageType: image_type, Resolution: image_res, ImageData: Data}, nil
 }
 
 /*
@@ -103,6 +109,9 @@ func CreateImage(image_type Modules.IMAGE, image_res Modules.RESOLUTION) *Camera
 func (CamImage *CameraImage) ReadImage(Cam *Modules.OV7670, SafeMode bool) error {
 	bytesPerPixel := get_image_type(CamImage.ImageType)
 	width, height := get_dimensions(CamImage.Resolution)
+	if CamImage.Resolution == Modules.VGA {
+		return fmt.Errorf("Impossible to store VGA Size Image in RAM.")
+	}
 	DataCounter := 0
 
 	Cam.WaitForNewFrame() // Wait for VSync high then low
@@ -124,7 +133,7 @@ func (CamImage *CameraImage) ReadImage(Cam *Modules.OV7670, SafeMode bool) error
 			Cam.WaitForPixelClockHigh()
 
 			Cam.WaitForPixelClockLow()
-			if bytesPerPixel == 2 {
+			if bytesPerPixel >= 2 {
 				CamImage.ImageData[DataCounter] = Cam.ReadPins()
 				DataCounter++
 			}
@@ -136,16 +145,21 @@ func (CamImage *CameraImage) ReadImage(Cam *Modules.OV7670, SafeMode bool) error
 }
 
 /*
- * @brief = Creates the QueuedCameraImage DataStructure.
- * @param image_type = The format of image.
- * @param image_res = The resolution of image.
- * @return = An instance of QueuedCameraImage will all the maths sorted out.
- */
-func CreateQueuedImage(image_type Modules.IMAGE, image_res Modules.RESOLUTION) *QueuedCameraImage {
+* @brief = Creates the QueuedCameraImage DataStructure.
+* @param image_type = The format of image.
+* @param image_res = The resolution of image.
+* @return = An instance of QueuedCameraImage with all the maths sorted out.
+! Handle Error.
+*/
+func CreateQueuedImage(image_type Modules.IMAGE, image_res Modules.RESOLUTION) (*QueuedCameraImage, error) {
 	bytes_per_pixel := get_image_type(image_type)
 	W, H := get_dimensions(image_res)
+	if image_res == Modules.VGA {
+		return nil, fmt.Errorf("Impossible to store VGA Size Image in RAM.")
+	}
+
 	Data := NewQueue[byte](W * H * bytes_per_pixel)
-	return &QueuedCameraImage{ImageType: image_type, Resolution: image_res, ImageData: Data}
+	return &QueuedCameraImage{ImageType: image_type, Resolution: image_res, ImageData: Data}, nil
 }
 
 /*
@@ -156,9 +170,12 @@ func CreateQueuedImage(image_type Modules.IMAGE, image_res Modules.RESOLUTION) *
 ! Handle Error.
 */
 func (CamImage *QueuedCameraImage) ReadImage(Cam *Modules.OV7670, SafeMode bool) error {
-	bytes_per_pixel := get_image_type(CamImage.ImageType)
+	bytesPerPixel := get_image_type(CamImage.ImageType)
 	width, height := get_dimensions(CamImage.Resolution)
-	data_counter := 0
+
+	if CamImage.Resolution == Modules.VGA {
+		return fmt.Errorf("Impossible to store VGA Size Image in RAM.")
+	}
 
 	Cam.WaitForNewFrame() // Checks for VSync pin to go high then low.
 	for row := 0; row < height; row++ {
@@ -172,24 +189,95 @@ func (CamImage *QueuedCameraImage) ReadImage(Cam *Modules.OV7670, SafeMode bool)
 		}
 
 		for column := 0; column < width; column++ {
-			// Extract Image Data
-			var pixel_byte byte
-
 			Cam.WaitForPixelClockLow()
-			pixel_byte = Cam.ReadPins()
-			CamImage.ImageData.Enqueue(pixel_byte)
-			data_counter++
-
+			CamImage.ImageData.Enqueue(Cam.ReadPins())
 			Cam.WaitForPixelClockHigh()
+
 			Cam.WaitForPixelClockLow()
-			if bytes_per_pixel == 2 {
-				pixel_byte = Cam.ReadPins()
-				CamImage.ImageData.Enqueue(pixel_byte)
-				data_counter++
+			if bytesPerPixel >= 2 {
+				CamImage.ImageData.Enqueue(Cam.ReadPins())
 			}
 			Cam.WaitForPixelClockHigh()
 		}
 	}
 
 	return nil
+}
+
+/*
+* @brief = Flash an image to the USB Interface of pico.
+* @param Cam = A pointer to a OV7670 Driver Object.
+* @param ImageType = Stores the format of image.
+* @param Resolution = Stores the size of image.
+* @param SafeMode = Check for image corruption.
+* @return = Error if caught any.
+! Handle Error.
+*/
+func FlashImage(Cam *Modules.OV7670, ImageType Modules.IMAGE, Resolution Modules.RESOLUTION, SafeMode bool) error {
+	if Resolution == Modules.VGA {
+		return fmt.Errorf("Impossible to store VGA Size Image in RAM.")
+	}
+
+	CamImage, _ := CreateImage(ImageType, Resolution)
+	if err := CamImage.ReadImage(Cam, SafeMode); err != nil {
+		for _, item := range CamImage.ImageData {
+			machine.USBCDC.WriteByte(item)
+			time.Sleep(time.Microsecond)
+		}
+
+		clear(CamImage.ImageData)
+		CamImage = nil
+
+		return nil
+	} else {
+		return err
+	}
+}
+
+/*
+* @brief = Flash an image to the UART Interface of pico.
+* @param Cam = A pointer to a OV7670 Driver Object.
+* @param ImageType = Stores the format of image.
+* @param Resolution = Stores the size of image.
+* @param SafeMode = Check for image corruption.
+* @return = Error if caught any.
+! Handle Error.
+*/
+func FlashImageToUART(UART *machine.UART, Cam *Modules.OV7670, ImageType Modules.IMAGE, Resolution Modules.RESOLUTION, SafeMode bool) error {
+	bytesPerPixel := get_image_type(ImageType)
+	width, height := get_dimensions(Resolution)
+
+	Cam.WaitForNewFrame() // Checks for VSync pin to go high then low.
+	for row := 0; row < height; row++ {
+		if SafeMode {
+			Cam.WaitForHorizontalSyncLow()
+			for !Cam.HSync.Get() {
+				if Cam.VSync.Get() {
+					return fmt.Errorf("Corrupted Image. Image till Height = %d is done", row)
+				}
+			}
+		}
+
+		for column := 0; column < width; column++ {
+			Cam.WaitForPixelClockLow()
+			UART.WriteByte(Cam.ReadPins())
+			Cam.WaitForPixelClockHigh()
+
+			Cam.WaitForPixelClockLow()
+			if bytesPerPixel >= 2 {
+				UART.WriteByte(Cam.ReadPins())
+			}
+			Cam.WaitForPixelClockHigh()
+		}
+	}
+
+	return nil
+}
+
+/*
+* @brief = Store an image in a SD Card if possible.
+! Handle Error.
+*/
+func StoreImage() error {
+	return fmt.Errorf("NOT IMPLEMENTED.")
 }

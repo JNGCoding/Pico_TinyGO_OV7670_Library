@@ -6,6 +6,33 @@ package Modules
 ^ Simulates enums named IMAGE (image format) and RESOLUTION (output resolution).
 */
 
+type PCLK_DIVIDER int
+
+const (
+	PCLK_DIV0 = 0x01
+	PCLK_DIV1 = 0x04
+	PCLK_DIV2 = 0x08
+	PCLK_DIV3 = 0x10
+	PCLK_DIV4 = 0x1F
+)
+
+func (i PCLK_DIVIDER) String() string {
+	switch i {
+	case PCLK_DIV0:
+		return "PCLKDIV0"
+	case PCLK_DIV1:
+		return "PCLKDIV1"
+	case PCLK_DIV2:
+		return "PCLKDIV2"
+	case PCLK_DIV3:
+		return "PCLKDIV3"
+	case PCLK_DIV4:
+		return "PCLKDIV4"
+	}
+
+	return "NOT VALID"
+}
+
 type IMAGE int
 
 const (

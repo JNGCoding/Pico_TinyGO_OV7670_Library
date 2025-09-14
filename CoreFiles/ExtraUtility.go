@@ -1,5 +1,8 @@
 package CORE
 
+// ~ File Description
+// ^ Provides many useful functions to make programming in TinyGO easy.
+
 import (
 	"machine"
 	"time"
@@ -20,6 +23,10 @@ func Print(text string) {
 
 func WriteBytes(data []byte) {
 	machine.USBCDC.Write(data)
+}
+
+func WriteByte(data byte) {
+	machine.USBCDC.WriteByte(data)
 }
 
 func CreateIOPin(num int16, config machine.PinMode) machine.Pin {

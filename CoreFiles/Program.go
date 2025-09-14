@@ -1,5 +1,8 @@
 package CORE
 
+// ~ File Description
+// ^ Provides a layer of aliasing in an attempt to simulate Arduino IDE kind of code structure.
+
 type Program struct {
 	Setup func()
 	Loop  func()

@@ -42,6 +42,7 @@ func CreateOV7670(bus_i2c *machine.I2C, vsync, hsync, mclk, pclk machine.Pin, da
 
 /*
 * @brief = Generates the Clock Signal and resets the OV7670 Camera.
+* @param = Frequency on the PWM pin. Directly changes the speed of camera.
 * @return = returns an error if found any.
 ! Handle Error.
 */
@@ -91,23 +92,21 @@ func (Cam *OV7670) Initialize(_freq uint64) error {
 	}
 
 	// Writing Start-up registers.
-	Cam.Reset()
-	Cam.Write(0x3A, 0x04)
-	Cam.Write(0x13, 0xC0)
-	Cam.Write(0x00, 0x00)
-	Cam.Write(0x10, 0x00)
-	Cam.Write(0x0D, 0x40)
-	Cam.Write(0x14, 0x18)
-	Cam.Write(0x24, 0x95)
-	Cam.Write(0x25, 0x33)
-	Cam.Write(0x13, 0xC5)
-	Cam.Write(0x6A, 0x40)
-	Cam.Write(0x01, 0x40)
-	Cam.Write(0x02, 0x60)
-	Cam.Write(0x13, 0xC7)
-	Cam.Write(0x41, 0x08)
-	Cam.Write(0x15, 0x20)
-
+	Cam.Write(0x3A, 0x04) //TSLB
+	Cam.Write(0x13, 0xC0) //COM8
+	Cam.Write(0x00, 0x00) //GAIN
+	Cam.Write(0x10, 0x00) //AECH
+	Cam.Write(0x0D, 0x40) //COM4
+	Cam.Write(0x14, 0x18) //COM9
+	Cam.Write(0x24, 0x95) //AEW
+	Cam.Write(0x25, 0x33) //AEB
+	Cam.Write(0x13, 0xC5) //COM8
+	Cam.Write(0x6A, 0x40) //GGAIN
+	Cam.Write(0x01, 0x40) //BLUE
+	Cam.Write(0x02, 0x60) //RED
+	Cam.Write(0x13, 0xC7) //COM8
+	Cam.Write(0x41, 0x08) //COM16
+	Cam.Write(0x15, 0x20) //COM10 - PCLK does not toggle on HBLANK
 	return nil
 }
 
@@ -165,16 +164,20 @@ func (Cam *OV7670) set_resolution(res RESOLUTION) {
 		Cam.Write(0x03, 0x0A)
 		break
 	case "QQVGA":
-		Cam.Write(0x19, 0x00)
-		Cam.Write(0x1A, 0x7A)
-		Cam.Write(0x03, 0x00)
-		Cam.Write(0x17, 0x16)
-		Cam.Write(0x18, 0x05)
-		Cam.Write(0x32, 0x32)
+		Cam.Write(0x12, 0x00)
+		Cam.Write(0x11, 0x01)
 		Cam.Write(0x0C, 0x04)
 		Cam.Write(0x3E, 0x1A)
 		Cam.Write(0x72, 0x22)
 		Cam.Write(0x73, 0xF2)
+		Cam.Write(0x70, 0x3A)
+		Cam.Write(0x71, 0x35)
+		Cam.Write(0x17, 0x16)
+		Cam.Write(0x18, 0x04)
+		Cam.Write(0x32, 0x80)
+		Cam.Write(0x19, 0x02)
+		Cam.Write(0x1A, 0x7A)
+		Cam.Write(0x03, 0x0A)
 		break
 	default:
 		return
@@ -243,6 +246,15 @@ func (Cam *OV7670) Configure(col IMAGE, res RESOLUTION) error {
  */
 func (Cam *OV7670) ReadPins() uint8 {
 	return Cam.DataPins.Read()
+}
+
+func (Cam *OV7670) SetPCLKSpeed(spd PCLK_DIVIDER) error {
+	if spd.String() == "NOT VALID" {
+		return fmt.Errorf("Not a valid Pixel Clock Divider. Value = %d", spd)
+	}
+	Cam.Write(0x11, uint8(spd))
+
+	return nil
 }
 
 /*
