@@ -3,15 +3,15 @@
 package main
 
 import (
+	Camera7670 "PICO_OV7670/Camera"
 	CORE "PICO_OV7670/CoreFiles"
 	DataStructures "PICO_OV7670/DS"
-	"PICO_OV7670/Modules"
 	"fmt"
 	"machine"
 	"runtime"
+	"time"
 
 	"tinygo.org/x/drivers/hd44780i2c"
-	"tinygo.org/x/drivers/sdcard"
 )
 
 // ~ CONSTANTS
@@ -23,7 +23,7 @@ const (
 	HSync machine.Pin = machine.GPIO12
 )
 
-var DataPins *Modules.PArray = Modules.GeneratePArray(
+var DataPins *Camera7670.PArray = Camera7670.GeneratePArray(
 	[]machine.Pin{
 		machine.GPIO6,
 		machine.GPIO7,
@@ -31,36 +31,47 @@ var DataPins *Modules.PArray = Modules.GeneratePArray(
 		machine.GPIO11,
 		machine.GPIO2,
 		machine.GPIO3,
-		machine.GPIO19,
-		machine.GPIO18,
+		machine.GPIO21,
+		machine.GPIO20,
 	},
 	machine.PinInput,
 )
 
+// ^ I2C Configuration
+const (
+	I2C_SDA  = machine.I2C0_SDA_PIN
+	I2C_SCL  = machine.I2C0_SCL_PIN
+	I2C_MODE = machine.I2CModeController
+)
+
+// ^ UART Configuration
+const (
+	UART_TX = machine.UART0_TX_PIN
+	UART_RX = machine.UART0_RX_PIN
+)
+
 // ^ SPI Configuration
 const (
-	SD_SCK = machine.NoPin
-	SD_SDI = machine.NoPin
-	SD_SDO = machine.NoPin
-	SD_CS  = machine.NoPin
+	SD_SCK = machine.SPI0_SCK_PIN
+	SD_SDO = machine.SPI0_SDO_PIN
+	SD_SDI = machine.SPI0_SDI_PIN
+	SD_CS  = machine.GPIO17
 )
 
 // ^ IMAGE Configuration
 const (
-	ImageResolution = Modules.QQVGA
-	ImageColorSpace = Modules.GREYSCALED
+	ImageResolution = Camera7670.QQVGA
+	ImageColorSpace = Camera7670.GREYSCALED
+	PCLKSPEED = Camera7670.PCLK_DIV3
 )
 
 // * Variables
 var INBUILT_LED machine.Pin
 var Application *CORE.Program
 var Display hd44780i2c.Device
-var _I2C *machine.I2C
-var _SPI *machine.SPI
-var Camera *Modules.OV7670
+var Camera *Camera7670.OV7670
 var FrameCounter int
 var Image *DataStructures.CameraImage
-var SDCard sdcard.Device
 var MemoryStatus *runtime.MemStats
 
 func main() {
@@ -70,18 +81,26 @@ func main() {
 		MemoryStatus = &runtime.MemStats{}
 
 		// & Initializing I2C
-		_I2C = machine.I2C0
-		if err := _I2C.Configure(machine.I2CConfig{
-			SDA:  machine.I2C0_SDA_PIN,
-			SCL:  machine.I2C0_SCL_PIN,
-			Mode: machine.I2CModeController,
+		if err := machine.I2C0.Configure(machine.I2CConfig{
+			SDA:  I2C_SDA,
+			SCL:  I2C_SCL,
+			Mode: I2C_MODE,
 		}); err != nil {
 			Application.Exit(1, fmt.Sprintf("Failed to Configure I2C Bus. Error = %v\n", err))
 		}
 
+		// & Initializing UART
+		if err := machine.UART0.Configure(machine.UARTConfig{
+			BaudRate: 2_000_000,
+			TX:       machine.UART0_TX_PIN,
+			RX:       machine.UART0_RX_PIN,
+		}); err != nil {
+			Application.Exit(1, fmt.Sprintf("Failed to Configure UART Bus. Error = %v\n", err))
+		}
+
 		// & Initializing Drivers
 		// ^ Display
-		Display = hd44780i2c.New(_I2C, 0x27)
+		Display = hd44780i2c.New(machine.I2C0, 0x27)
 		if err := Display.Configure(hd44780i2c.Config{
 			Width:       16,
 			Height:      2,
@@ -102,39 +121,26 @@ func main() {
 		PCLK.Configure(machine.PinConfig{Mode: machine.PinInput})
 		DataPins.Init()
 
-		Camera = Modules.CreateOV7670(
-			_I2C,
+		Camera = Camera7670.CreateOV7670(
+			machine.I2C0,
 			VSync,
 			HSync,
 			MCLK,
 			PCLK,
 			DataPins,
 		)
+
 		Camera.Initialize(20_000_000)
 		if err := Camera.Configure(ImageColorSpace, ImageResolution); err != nil {
 			Application.Exit(1, fmt.Sprintf("Failed to Configure Camera. Error = %v\n", err))
 		}
-		Camera.SetPCLKSpeed(Modules.PCLK_DIV1) // * Writes at 0x11 Register Changes the speed of PCLK giving more time to PICO to scan a pixel. Currently it is at the highest value of 0x1F but you can decrease it to further speedify things.
+		Camera.SetPCLKSpeed(PCLKSPEED) // * Writes at 0x11 Register Changes the speed of PCLK giving more time to PICO to scan a pixel. Currently it is at the highest value of 0x1F but you can decrease it to further speedify things.
 
 		// ^ Camera Image Holder
 		Image, _ = DataStructures.CreateImage(ImageColorSpace, ImageResolution)
 
 		// ^ INBUILD LED
 		INBUILT_LED = CORE.CreateIOPin(25, machine.PinOutput)
-
-		// ^ SD Card
-
-		/*
-			SDCard = sdcard.New(machine.SPI1, SD_SCK, SD_SDO, SD_SDI, SD_CS)
-			if err := SDCard.Configure(); err != nil {
-			}
-			machine.SPI1.Configure(machine.SPIConfig{
-				Frequency: 8_000_000,
-				SCK:       SD_SCK,
-				SDO:       SD_SDO,
-				SDI:       SD_SDI,
-			})
-		*/
 	})
 
 	Application.LetLoop(func() {
@@ -150,15 +156,14 @@ func main() {
 		}
 
 		Image.ReadImage(Camera, false)
-		/*
-			CORE.Print("IMAGE START!")
-			Image.ReadImage(Camera, false)
-			for i := 0; i < len(Image.ImageData); i++ {
-				CORE.WriteByte(Image.ImageData[i])
-				time.Sleep(time.Microsecond)
-			}
-			CORE.Print("IMAGE END!")
-		*/
+
+		machine.USBCDC.Write([]byte("IMAGE START!"))
+		for i := 0; i < len(Image.ImageData); i++ {
+			machine.USBCDC.WriteByte(Image.ImageData[i])
+			time.Sleep(time.Microsecond)
+		}
+		machine.USBCDC.Write([]byte("IMAGE END!"))
+
 		FrameCounter++
 	})
 
