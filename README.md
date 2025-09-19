@@ -17,10 +17,7 @@ A modular TinyGO library for interfacing the **OV7670 camera module** with the *
 
 ## 🧪 Trial Runs
 
-- Successfully captured and transmitted a **320×240 grayscale image**  
-- Raw image data sent over Serial and post-processed into a **bitmap**  
-- Image made window-accessible for desktop visualization
-
+- Successfully captured and transmitted a **QQVGA and QVGA Images in both GREYSCALED and RGB565 Format**
 ---
 
 ## 🚀 Getting Started
