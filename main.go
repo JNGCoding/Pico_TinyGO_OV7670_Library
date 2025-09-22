@@ -6,6 +6,7 @@ import (
 	Camera7670 "PICO_OV7670/Camera"
 	CORE "PICO_OV7670/CoreFiles"
 	DataStructures "PICO_OV7670/DS"
+	SDController "PICO_OV7670/SDCardController"
 	"fmt"
 	"machine"
 	"runtime"
@@ -46,8 +47,9 @@ const (
 
 // ^ UART Configuration
 const (
-	UART_TX = machine.UART0_TX_PIN
-	UART_RX = machine.UART0_RX_PIN
+	UART_TX    = machine.UART0_TX_PIN
+	UART_RX    = machine.UART0_RX_PIN
+	UART_SPEED = 115200
 )
 
 // ^ SPI Configuration
@@ -60,9 +62,16 @@ const (
 
 // ^ IMAGE Configuration
 const (
-	ImageResolution = Camera7670.QQVGA
+	ImageResolution = Camera7670.QVGA
 	ImageColorSpace = Camera7670.GREYSCALED
-	PCLKSPEED = Camera7670.PCLK_DIV3
+	PCLKSPEED       = Camera7670.PCLK_DIV4
+	MCLKSPEED       = 20_000_000
+)
+
+// ^ Program Configurations
+const (
+	UART_ChunkSize  = 2
+	UART_ReliefTime = time.Microsecond
 )
 
 // * Variables
@@ -73,6 +82,7 @@ var Camera *Camera7670.OV7670
 var FrameCounter int
 var Image *DataStructures.CameraImage
 var MemoryStatus *runtime.MemStats
+var ImageFile *SDController.SDCard
 
 func main() {
 	Application = CORE.CreateApplication()
@@ -90,10 +100,11 @@ func main() {
 		}
 
 		// & Initializing UART
+		machine.InitSerial()
 		if err := machine.UART0.Configure(machine.UARTConfig{
-			BaudRate: 2_000_000,
-			TX:       machine.UART0_TX_PIN,
-			RX:       machine.UART0_RX_PIN,
+			BaudRate: UART_SPEED,
+			TX:       UART_TX,
+			RX:       UART_RX,
 		}); err != nil {
 			Application.Exit(1, fmt.Sprintf("Failed to Configure UART Bus. Error = %v\n", err))
 		}
@@ -114,6 +125,9 @@ func main() {
 		Display.ClearDisplay()
 		Display.Home()
 
+		// ^ SDCard
+		ImageFile = &SDController.SDCard{CommunicationLine: machine.UART0}
+
 		// ^ Camera
 		VSync.Configure(machine.PinConfig{Mode: machine.PinInput})
 		HSync.Configure(machine.PinConfig{Mode: machine.PinInput})
@@ -130,7 +144,7 @@ func main() {
 			DataPins,
 		)
 
-		Camera.Initialize(20_000_000)
+		Camera.Initialize(MCLKSPEED)
 		if err := Camera.Configure(ImageColorSpace, ImageResolution); err != nil {
 			Application.Exit(1, fmt.Sprintf("Failed to Configure Camera. Error = %v\n", err))
 		}
@@ -157,12 +171,11 @@ func main() {
 
 		Image.ReadImage(Camera, false)
 
-		machine.USBCDC.Write([]byte("IMAGE START!"))
-		for i := 0; i < len(Image.ImageData); i++ {
-			machine.USBCDC.WriteByte(Image.ImageData[i])
-			time.Sleep(time.Microsecond)
-		}
-		machine.USBCDC.Write([]byte("IMAGE END!"))
+		ImageFile.TurnOnLED()
+		ImageFile.CreateFile(fmt.Sprintf("Frame%d.RID", FrameCounter))
+		ImageFile.Write(Image.ImageData, UART_ChunkSize, UART_ReliefTime)
+		ImageFile.CloseFile()
+		ImageFile.TurnOffLED()
 
 		FrameCounter++
 	})
